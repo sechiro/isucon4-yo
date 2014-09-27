@@ -14,3 +14,4 @@ mysql -h ${myhost} -P ${myport} -u ${myuser} ${mydb} < $app_dir/sql/schema.sql
 mysql -h ${myhost} -P ${myport} -u ${myuser} ${mydb} < sql/dummy_users.sql
 mysql -h ${myhost} -P ${myport} -u ${myuser} ${mydb} < sql/dummy_log.sql
 mysql -h ${myhost} -P ${myport} -u ${myuser} ${mydb} < $app_dir/create-idx.sql
+mysql -h ${myhost} -P ${myport} -u ${myuser} ${mydb} < $app_dir/init-user.sql

@@ -49,6 +49,10 @@ def login_log(succeeded, login, user_id=None):
         'INSERT INTO login_log (`created_at`, `user_id`, `login`, `ip`, `succeeded`) VALUES (NOW(),%s,%s,%s,%s)',
         (user_id, login, request.remote_addr, 1 if succeeded else 0)
     )
+    #cur.execute(
+    #    'UPDATE users SET last_login=NOW(), last_ip=ip, ip=%s WHERE id=%s', (request.remote_addr, user_id, )
+        #'UPDATE users SET last_login=NOW() WHERE id=%s', (user_id, )
+    #)
     cur.close()
     db.commit()
 
@@ -60,6 +64,9 @@ def user_locked(user):
         'SELECT COUNT(1) AS failures FROM login_log WHERE user_id = %s AND id > IFNULL((select id from login_log where user_id = %s AND succeeded = 1 ORDER BY id DESC LIMIT 1), 0);',
         (user['id'], user['id'])
     )
+    #cur.execute(
+    #    'SELECT fail_count AS failures FROM users WHERE id = %s;', (user['id'],)
+    #)
     log = cur.fetchone()
     cur.close()
     return config['user_lock_threshold'] <= log['failures']
@@ -94,9 +101,28 @@ def attempt_login(login, password):
 
     if user and calculate_password_hash(password, user['salt']) == user['password_hash']:
         login_log(True, login, user['id'])
+        db = get_db()
+        cur = db.cursor()
+        cur.execute(
+            'UPDATE users SET last_login=NOW(), last_ip=ip, ip=%s, fail_count = 0 WHERE id=%s', (request.remote_addr, user['id'], )
+        )
+        #cur.execute(
+        #    'UPDATE users SET fail_count = 0 WHERE id=%s', (user['id'], )
+        #)
+        db.commit()
+        cur.close()
+
         return [user, None]
+
     elif user:
         login_log(False, login, user['id'])
+
+        cur = get_db().cursor()
+        cur.execute(
+            'UPDATE users SET fail_count = fail_count + 1 WHERE id=%s', (user['id'], )
+        )
+        cur.close()
+
         return [None, 'wrong_password']
     else:
         login_log(False, login)
@@ -120,13 +146,24 @@ def last_login():
         return None
 
     cur = get_db().cursor()
+    #cur.execute(
+    #    'SELECT created_at, ip FROM login_log WHERE succeeded = 1 AND user_id = %s ORDER BY id DESC LIMIT 2',
+    #    (user['id'],)
+    #)
     cur.execute(
-        'SELECT created_at, ip FROM login_log WHERE succeeded = 1 AND user_id = %s ORDER BY id DESC LIMIT 2',
+        'SELECT last_login, last_ip, ip FROM users WHERE id = %s',
         (user['id'],)
     )
-    rows = cur.fetchall()
+    #rows = cur.fetchall()
+    row = cur.fetchone()
+    if row['last_ip'] == None:
+        row['last_ip'] = row['ip']
+    #cur.execute(
+    #    'UPDATE users SET last_login=NOW(), ip=%s WHERE id=%s', (request.remote_addr, user['id'], )
+    #)
     cur.close()
-    return rows[-1]
+    #return rows[-1]
+    return row
 
 def banned_ips():
     global config
