@@ -10,6 +10,9 @@ from werkzeug.contrib.fixers import ProxyFix
 import os, hashlib
 from datetime import date
 
+from redis import Redis
+
+redis = Redis()
 config = {}
 app = Flask(__name__, static_url_path='')
 app.wsgi_app = ProxyFix(app.wsgi_app)
@@ -49,12 +52,18 @@ def login_log(succeeded, login, user_id=None):
         'INSERT INTO login_log (`created_at`, `user_id`, `login`, `ip`, `succeeded`) VALUES (NOW(),%s,%s,%s,%s)',
         (user_id, login, request.remote_addr, 1 if succeeded else 0)
     )
-    #cur.execute(
-    #    'UPDATE users SET last_login=NOW(), last_ip=ip, ip=%s WHERE id=%s', (request.remote_addr, user_id, )
-        #'UPDATE users SET last_login=NOW() WHERE id=%s', (user_id, )
-    #)
     cur.close()
     db.commit()
+
+    # ip
+    key = request.remote_addr
+    if succeeded:
+      redis.set(key, 0)
+    else:
+      if redis.get(key):
+        redis.incr(key)
+      else:
+        redis.set(key, 1)
 
 def user_locked(user):
     if not user:
@@ -64,27 +73,28 @@ def user_locked(user):
         'SELECT COUNT(1) AS failures FROM login_log WHERE user_id = %s AND id > IFNULL((select id from login_log where user_id = %s AND succeeded = 1 ORDER BY id DESC LIMIT 1), 0);',
         (user['id'], user['id'])
     )
-    #cur.execute(
-    #    'SELECT fail_count AS failures FROM users WHERE id = %s;', (user['id'],)
-    #)
     log = cur.fetchone()
     cur.close()
     return config['user_lock_threshold'] <= log['failures']
 
 def ip_banned():
     global config
-    cur = get_db().cursor()
-    cur.execute(
-        'SELECT COUNT(1) AS failures FROM login_log WHERE ip = %s AND id > IFNULL((select id from login_log where ip = %s AND succeeded = 1 ORDER BY id DESC LIMIT 1), 0)',
-        (request.remote_addr, request.remote_addr)
-    )
-    log = cur.fetchone()
-    cur.close()
-    return config['ip_ban_threshold'] <= log['failures']
+#    cur = get_db().cursor()
+#    cur.execute(
+#        'SELECT COUNT(1) AS failures FROM login_log WHERE ip = %s AND id > IFNULL((select id from login_log where ip = %s AND succeeded = 1 ORDER BY id DESC LIMIT 1), 0)',
+#        (request.remote_addr, request.remote_addr)
+#    )
+#    log = cur.fetchone()
+#    cur.close()
+#    return config['ip_ban_threshold'] <= log['failures']
+    key = request.remote_addr
+    if not redis.get(key):
+      return False
+    return config['ip_ban_threshold'] <= redis.get(key)
 
 def attempt_login(login, password):
     cur = get_db().cursor()
-    cur.execute('SELECT id, salt, password_hash FROM users WHERE login=%s', (login,))
+    cur.execute('SELECT * FROM users WHERE login=%s', (login,))
     user = cur.fetchone()
     cur.close()
 
@@ -101,28 +111,9 @@ def attempt_login(login, password):
 
     if user and calculate_password_hash(password, user['salt']) == user['password_hash']:
         login_log(True, login, user['id'])
-        db = get_db()
-        cur = db.cursor()
-        cur.execute(
-            'UPDATE users SET last_login=NOW(), last_ip=ip, ip=%s, fail_count = 0 WHERE id=%s', (request.remote_addr, user['id'], )
-        )
-        #cur.execute(
-        #    'UPDATE users SET fail_count = 0 WHERE id=%s', (user['id'], )
-        #)
-        db.commit()
-        cur.close()
-
         return [user, None]
-
     elif user:
         login_log(False, login, user['id'])
-
-        cur = get_db().cursor()
-        cur.execute(
-            'UPDATE users SET fail_count = fail_count + 1 WHERE id=%s', (user['id'], )
-        )
-        cur.close()
-
         return [None, 'wrong_password']
     else:
         login_log(False, login)
@@ -132,7 +123,7 @@ def current_user():
     if not session['user_id']:
         return None
     cur = get_db().cursor()
-    cur.execute('SELECT id, login FROM users WHERE id=%s', (session['user_id'],))
+    cur.execute('SELECT * FROM users WHERE id=%s', (session['user_id'],))
     user = cur.fetchone()
     cur.close()
     if user:
@@ -146,24 +137,13 @@ def last_login():
         return None
 
     cur = get_db().cursor()
-    #cur.execute(
-    #    'SELECT created_at, ip FROM login_log WHERE succeeded = 1 AND user_id = %s ORDER BY id DESC LIMIT 2',
-    #    (user['id'],)
-    #)
     cur.execute(
-        'SELECT last_login, last_ip, ip FROM users WHERE id = %s',
+        'SELECT * FROM login_log WHERE succeeded = 1 AND user_id = %s ORDER BY id DESC LIMIT 2',
         (user['id'],)
     )
-    #rows = cur.fetchall()
-    row = cur.fetchone()
-    if row['last_ip'] == None:
-        row['last_ip'] = row['ip']
-    #cur.execute(
-    #    'UPDATE users SET last_login=NOW(), ip=%s WHERE id=%s', (request.remote_addr, user['id'], )
-    #)
+    rows = cur.fetchall()
     cur.close()
-    #return rows[-1]
-    return row
+    return rows[-1]
 
 def banned_ips():
     global config
@@ -215,7 +195,7 @@ def locked_users():
 
 @app.route('/')
 def index():
-    return render_template('static-index.html')
+    return render_template('index.html')
 
 @app.route('/login', methods=['POST'])
 def login():
