@@ -215,7 +215,14 @@ def locked_users():
 
 @app.route('/')
 def index():
-    return render_template('static-index.html')
+    if request.args.get('err') == 'locked':
+        return app.send_static_file('locked-index.html')
+    elif request.args.get('err') == 'banned':
+        return app.send_static_file('banned-index.html')
+    elif request.args.get('err') == 'wrong_password':
+        return app.send_static_file('wrong_password-index.html')
+    #return render_template('static-index.html')
+    return app.send_static_file('index.html')
 
 @app.route('/login', methods=['POST'])
 def login():
@@ -227,13 +234,18 @@ def login():
         return redirect(url_for('mypage'))
     else:
         print('err = ' + err)
-        if err == 'locked':
-            flash('This account is locked.')
-        elif err == 'banned':
-            flash("You're banned.")
-        else:
-            flash('Wrong username or password')
-        return redirect(url_for('index'))
+        #if err == 'locked':
+        #    pass
+            #return app.send_static_file('/home/isucon/webapp/python/template/locked-index.html')
+            #flash('This account is locked.')
+        #elif err == 'banned':
+        #    pass
+            #flash("You're banned.")
+        #else:
+        #    pass
+            #flash('Wrong username or password')
+        return redirect(url_for('index', err=err))
+
 
 @app.route('/mypage')
 def mypage():
