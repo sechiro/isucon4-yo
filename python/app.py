@@ -77,7 +77,7 @@ def ip_banned():
 
 def attempt_login(login, password):
     cur = get_db().cursor()
-    cur.execute('SELECT * FROM users WHERE login=%s', (login,))
+    cur.execute('SELECT id, salt, password_hash FROM users WHERE login=%s', (login,))
     user = cur.fetchone()
     cur.close()
 
@@ -106,7 +106,7 @@ def current_user():
     if not session['user_id']:
         return None
     cur = get_db().cursor()
-    cur.execute('SELECT * FROM users WHERE id=%s', (session['user_id'],))
+    cur.execute('SELECT id, login FROM users WHERE id=%s', (session['user_id'],))
     user = cur.fetchone()
     cur.close()
     if user:
@@ -121,7 +121,7 @@ def last_login():
 
     cur = get_db().cursor()
     cur.execute(
-        'SELECT * FROM login_log WHERE succeeded = 1 AND user_id = %s ORDER BY id DESC LIMIT 2',
+        'SELECT created_at, ip FROM login_log WHERE succeeded = 1 AND user_id = %s ORDER BY id DESC LIMIT 2',
         (user['id'],)
     )
     rows = cur.fetchall()
@@ -178,7 +178,7 @@ def locked_users():
 
 @app.route('/')
 def index():
-    return render_template('index.html')
+    return render_template('static-index.html')
 
 @app.route('/login', methods=['POST'])
 def login():
